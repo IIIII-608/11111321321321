@@ -1,0 +1,226 @@
+import tkinter as tk
+import tkinter.messagebox
+
+import pyaudio
+import wave
+import threading
+
+from predict_single_test_wavs import *
+from shutil import copyfile
+import pyttsx3
+
+is_playing = False
+my_thread = None
+on_hit = False
+
+engine = pyttsx3.init()
+engine.setProperty("voice",
+                               "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_ZH-CN_HUIHUI_11.0")
+model = Model()
+
+class Speech_recongnize():
+    def __init__(self):
+
+        # GUI工具包的接口
+
+        self.window1 = tk.Tk()
+        self.window1.title('声纹识别')
+        self.window1.geometry('800x500')
+
+
+
+        self.var = tk.StringVar()
+        # 新建Label标签控件，显示一行或多行文本且不允许用户修改，relief参数指定边框样式，anchor参数控制文本在 Label 中显示的位置
+        label_ = tk.Label(self.window1, textvariable=self.var, borderwidth=1, relief="sunken", font=('宋体', 12),
+                          width=50, height=20, anchor='nw', bg="#FFCCCC")
+        label_.place(x=10, y=40)
+
+
+        # 结果输出内容
+        self.string_list = []
+
+        # 查询结果输出内容
+        self.string_list_chaxun = []
+
+
+        # 新建Button控件
+        self.b = tk.Button(self.window1, text='hit me', borderwidth=0, command=self.hit_me)
+        # 定义录音按钮图片
+        self.img_start = tk.PhotoImage(file="../pic/record.gif")
+        # 定义录音停止按钮图片
+        self.img_stop = tk.PhotoImage(file="../pic/stop.gif")
+        # 设置按钮图片
+        self.b.config(image=self.img_start)
+        self.b.place(x=150, y=400)
+
+        self.var_input_text = tk.StringVar()
+        self.entry_input_text = tk.Entry(self.window1, textvariable=self.var_input_text, bd=3, width=10)
+        self.entry_input_text.place(x=580, y=60)
+        label_3 = tk.Label(self.window1, text='输入名字')
+        label_3.place(x=490, y=60)
+
+        label_4 = tk.Label(self.window1, text='结果显示')
+        label_4.place(x=190, y=10)
+
+        self.bt_submit = tk.Button(self.window1, text='注册', height=1, width=10,command=self.registered)
+        self.bt_submit.place(x=580, y=130)
+
+        self.bt_submit = tk.Button(self.window1, text='对比', height=1, width=10,command=self.compare)
+        self.bt_submit.place(x=580, y=200)
+
+        self.bt_submit = tk.Button(self.window1, text='查询', height=1, width=10, command=self.search)
+        self.bt_submit.place(x=580, y=270)
+
+        self.string_list = []
+
+        # 加载窗口，一次又一次地循环
+        self.window1.mainloop()
+
+    def registered(self):
+        '''
+        注册声纹
+        '''
+        wavname = self.var_input_text.get()+".wav"
+        if wavname in os.listdir("../wav_database/"):
+            tk.messagebox.showerror(message='系统中这个人声纹已经存在')
+
+        else:
+            if "test.wav" in os.listdir("../record_wav/"):
+                copyfile("../record_wav/test.wav", "../wav_database/" + wavname)
+                os.remove("../record_wav/test.wav")
+                tk.messagebox.showerror(message='声纹注册已完成！')
+            else:
+                tk.messagebox.showerror(message='你还没有录音!')
+
+    def compare(self):
+        wavname = self.var_input_text.get() + ".wav"
+        if wavname not in os.listdir("../wav_database"):
+            tk.messagebox.showerror(message='系统中这个人声纹不存在')
+        else:
+            cankao_wav = "../wav_database/" + wavname
+            if "test.wav" in os.listdir("../record_wav"):
+                test_wav = "../record_wav/test.wav"
+                result = model.predict_result(cankao_wav, test_wav)
+                # string = ""
+                if result >= 0.75:
+                    string = "同一个人"
+                    # 显示输出string
+                    self.var.set(string+" "+str(result))
+                else:
+                    string = "不是同一个人"
+                    self.var.set(string+" "+str(result))
+                engine.say(string)
+                engine.runAndWait()
+                print(result)
+                os.remove("../record_wav/test.wav")
+            else:
+                tk.messagebox.showerror(message='你还没有录音!')
+
+
+
+    def search(self):
+
+        self.var.set("")
+        for i in os.listdir("../wav_database/"):
+            self.string_list.append(i+"\n")
+
+
+
+        self.var.set(self.string_list)
+        print()
+
+    def hit_me(self):
+        # 按钮操作，按一下开启录音，再按一下暂停，如此循环
+        # #用global使用定义在函数外的变量的值
+        global on_hit
+        global wave_name
+
+        # 开启录音
+        if on_hit == False:
+            self.b.config(image=self.img_stop)
+            # 构成完整文件存储路径
+
+            # wav_length = str(len(os.listdir("wav_database/"))+1)
+            wave_name = '../record_wav/test.wav'
+
+            self.press_button_record(wave_name)
+            on_hit = True
+        # 结束录音并调用模型进行语音识别
+        else:
+            self.b.config(image=self.img_start)
+            self.press_button_stop()
+
+            # 获得语音识别后的字符串
+
+            on_hit = False
+
+
+    def press_button_stop(self):
+        global is_playing
+        global my_thread
+
+        # 如正is_playing为True, 结束录音
+        if is_playing:
+            is_playing = False
+            my_thread.join()
+
+    def press_button_record(self, wave_name):
+        global is_playing
+        global my_thread
+        # 如果is_playing为False，则建立线程开始录音
+        if not is_playing:
+            is_playing = True
+            my_thread = threading.Thread(target=self.input_voice_recording, args=(wave_name,))
+            my_thread.start()
+
+    def input_voice_recording(self, wave_name):
+        global is_playing
+        # 设置默认参数
+        CHUNK = 1024
+        FORMAT = pyaudio.paInt16
+        CHANNELS = 1
+        RATE = 16000
+        p = pyaudio.PyAudio()
+        stream = p.open(format=FORMAT,
+                        channels=CHANNELS,
+                        rate=RATE,
+                        input=True,
+                        frames_per_buffer=CHUNK)
+        print("正在录音...")
+        frames = []
+
+        # 录音中
+        while is_playing:
+            data = stream.read(CHUNK)
+            frames.append(data)
+        print("录音完成!")
+
+        # 结束录音
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+
+        # 保存录音文件
+        wf = wave.open(wave_name, 'wb')
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(p.get_sample_size(FORMAT))
+        wf.setframerate(RATE)
+        wf.writeframes(b''.join(frames))
+
+        wf.close()
+
+    def save_audio_to_wav(self, filename, data):
+        # wb只写二进制
+        wf = wave.open(filename, 'wb')
+        # 设置通道数
+        wf.setnchannels(1)
+        # 比特宽度 每一帧的字节数
+        wf.setsampwidth(2)
+        # 帧率  每秒有多少帧
+        wf.setframerate(2000)
+        # 连接读取进来的文字
+        wf.writeframes(b"".join(data))
+        # 关闭文件
+        wf.close()
+
+sr = Speech_recongnize()
